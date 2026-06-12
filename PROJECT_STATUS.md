@@ -450,6 +450,16 @@ used by the ignored integration test.
 **Verification**: 36 backend tests passing, frontend builds clean throughout,
 installers repackaged at the end of the run.
 
+## v0.9.0-beta.2 — folder removal (first post-launch fix)
+
+User-reported gap: folders couldn't be removed from the catalog. Folder
+context menu now has "Remove from Catalog…" (confirm dialog; disk untouched):
+`remove_folder_from_catalog` deletes the subtree's rows (FK cascades clean
+edits/history/collections/keywords), returns the ids so cached previews get
+deleted, prefix-safe (`path LIKE folder || '/%'` — /xtra survives removing
+/x; test-pinned). Browse source resets to All Photographs if it pointed
+inside the removed folder.
+
 ## v0.9.0-beta.1 — BETA RELEASE PREP (legal + cleanup, per plan)
 
 User decisions: keep the LumenRoom name (accepted risk), GPL-3.0-or-later.

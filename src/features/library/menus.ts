@@ -12,6 +12,7 @@ import {
   importSidecar,
   listCollections,
   moveFolder,
+  removeFolderFromCatalog,
   removeFromCatalog,
   renameFolder,
   revealFile,
@@ -219,6 +220,28 @@ export function buildFolderMenu(path: string): MenuItem[] {
             }
           )
         );
+      },
+    },
+    { separator: true },
+    {
+      label: "Remove from Catalog…",
+      action: () => {
+        const base = path.slice(path.lastIndexOf("/") + 1);
+        if (
+          !window.confirm(
+            `Remove "${base}" and all photos inside it from the catalog?\n\n` +
+              "Files on disk are NOT touched — this only makes LumenRoom forget them."
+          )
+        )
+          return;
+        void removeFolderFromCatalog(path).then(() => {
+          const src = catalog.filter.source;
+          if (src.kind === "folder" && (src.path === path || src.path.startsWith(path + "/"))) {
+            catalog.setFilter({ source: { kind: "all" } });
+          }
+          catalog.deselectAll();
+          return catalog.load();
+        });
       },
     },
     { separator: true },

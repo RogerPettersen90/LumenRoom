@@ -354,3 +354,8 @@ export function lookupLensProfile(
 ): Promise<LensProfile | null> {
   return invoke<LensProfile | null>("lookup_lens_profile", { lens, focal });
 }
+
+/** Forget a folder + everything under it (disk untouched). Returns count. */
+export function removeFolderFromCatalog(path: string): Promise<number> {
+  return invoke<number>("remove_folder_from_catalog", { path });
+}

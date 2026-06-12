@@ -102,6 +102,7 @@ pub fn run() {
             catalog::generate_subject_mask,
             catalog::save_mask_raster,
             catalog::lookup_lens_profile,
+            catalog::remove_folder_from_catalog,
             catalog::rename_folder,
             catalog::move_folder,
             prefs::get_prefs,

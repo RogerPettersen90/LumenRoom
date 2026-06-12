@@ -337,6 +337,25 @@ pub fn lookup_lens_profile(
     Ok(crate::imaging::lensdb::lookup(&lens, focal))
 }
 
+/// Remove a folder (and everything under it) from the catalog. Files on disk
+/// are never touched — this only forgets them, exactly like removing a
+/// single photo. Cached previews for the removed photos are deleted.
+#[tauri::command]
+pub fn remove_folder_from_catalog(
+    path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<usize> {
+    let conn = state.conn()?;
+    let ids = queries::remove_folder_from_catalog(&conn, &path)?;
+    drop(conn);
+    for id in &ids {
+        for suffix in ["", "_preview", "_full"] {
+            let _ = std::fs::remove_file(state.cache_dir.join(format!("{id}{suffix}.jpg")));
+        }
+    }
+    Ok(ids.len())
+}
+
 /// Rename a folder on disk and rewrite all catalogued paths under it.
 /// Guarded: the source must exist, the target must not, and the rename is a
 /// same-parent rename (no traversal). Sidecars travel with the folder for free.

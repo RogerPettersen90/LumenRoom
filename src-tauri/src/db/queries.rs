@@ -379,6 +379,23 @@ pub fn remove_from_catalog(conn: &DbConn, image_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Remove every catalogued photo inside `folder` (and its subfolders) from
+/// the catalog. Files on disk are untouched. Returns the removed ids so the
+/// caller can clean their cached previews.
+pub fn remove_folder_from_catalog(conn: &DbConn, folder: &str) -> Result<Vec<String>> {
+    let folder = folder.trim_end_matches('/');
+    let mut stmt = conn.prepare("SELECT id FROM images WHERE path LIKE ?1 || '/%'")?;
+    let ids: Vec<String> = stmt
+        .query_map(params![folder], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    drop(stmt);
+    conn.execute(
+        "DELETE FROM images WHERE path LIKE ?1 || '/%'",
+        params![folder],
+    )?;
+    Ok(ids)
+}
+
 // ── Collections ──
 
 pub fn create_collection(conn: &DbConn, name: &str) -> Result<Collection> {
@@ -700,6 +717,44 @@ mod tests {
             list_keywords(&conn).unwrap().iter().any(|k| k.name == "Travel"),
             "parent with children must survive GC"
         );
+    }
+
+    #[test]
+    fn folder_removal_forgets_subtree_only() {
+        let conn = test_conn();
+        migrate_extra(&conn);
+        // insert_image puts files at /x/<id>.jpg — add a nested one manually.
+        insert_image(&conn, "a");
+        insert_image(&conn, "b");
+        conn.execute(
+            "INSERT INTO images (id, path, filename, file_size, mtime, imported_at)
+             VALUES ('c', '/x/sub/c.jpg', 'c.jpg', 1, 1, 1)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO images (id, path, filename, file_size, mtime, imported_at)
+             VALUES ('d', '/y/d.jpg', 'd.jpg', 1, 1, 1)",
+            [],
+        )
+        .unwrap();
+
+        // Removing /x forgets a, b AND the nested c — but not /y's d.
+        let removed = remove_folder_from_catalog(&conn, "/x").unwrap();
+        assert_eq!(removed.len(), 3, "removed {removed:?}");
+        let left = list_images(&conn).unwrap();
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].id, "d");
+
+        // Prefix safety: a sibling folder sharing the name prefix survives.
+        conn.execute(
+            "INSERT INTO images (id, path, filename, file_size, mtime, imported_at)
+             VALUES ('e', '/xtra/e.jpg', 'e.jpg', 1, 1, 1)",
+            [],
+        )
+        .unwrap();
+        remove_folder_from_catalog(&conn, "/x").unwrap();
+        assert!(list_images(&conn).unwrap().iter().any(|i| i.id == "e"));
     }
 
     #[test]
