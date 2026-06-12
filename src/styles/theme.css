@@ -1,0 +1,25 @@
+:root {
+  /* Native widgets (select popups are NATIVE GTK menus that page CSS cannot
+     style!) must render in dark mode or their text vanishes on our theme. */
+  color-scheme: dark;
+  /* Dark, neutral photography UI — surfaces stay achromatic so they never
+     bias colour perception while editing. */
+  --bg-0: #0e0e10;        /* app background */
+  --bg-1: #161618;        /* panels */
+  --bg-2: #1e1e21;        /* raised controls */
+  --bg-3: #2a2a2e;        /* hover */
+  --border: #313135;
+  --text-0: #ededf0;      /* primary */
+  --text-1: #a0a0a8;      /* secondary */
+  --text-2: #6b6b73;      /* muted */
+  --accent: #4a9eff;      /* selection / focus */
+  --accent-dim: #2d6bb0;
+  --pick: #3ecf6a;        /* flag = pick */
+  --reject: #e5484d;      /* flag = reject */
+  --star: #f5c451;
+
+  --panel-w: 320px;
+  --topbar-h: 48px;
+  --radius: 6px;
+  --font: -apple-system, "Segoe UI", Roboto, "Inter", system-ui, sans-serif;
+}

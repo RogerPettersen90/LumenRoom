@@ -1,0 +1,11 @@
+node_modules/
+dist/
+src-tauri/target/
+*.AppImage
+
+# Personal test assets (EXIF carries camera serials) — never publish.
+sample_raw/
+
+# Internal planning docs, not part of the public repo.
+BETA_RELEASE_PLAN.md
+WEBSITE_PROMPT.md
