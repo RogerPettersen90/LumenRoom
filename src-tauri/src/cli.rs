@@ -20,6 +20,7 @@ pub fn try_run_cli() -> bool {
     let code = match args.first().map(String::as_str) {
         Some("import") => run(cmd_import(&args[1..])),
         Some("export") => run(cmd_export(&args[1..])),
+        Some("probe") => run(cmd_probe(&args[1..])),
         Some("--help") | Some("-h") | Some("help") => {
             print_help();
             0
@@ -44,6 +45,9 @@ fn print_help() {
         "LumenRoom — headless catalog operations
 
 USAGE:
+  lumenroom probe <file.dng>
+      Diagnose RAW decoding (embedded preview vs full demosaic).
+
   lumenroom import <dir> [--recursive]
       Import photos into the catalog (same pipeline as the GUI).
 
@@ -80,6 +84,43 @@ fn open_catalog() -> Result<(DbPool, PathBuf, crate::prefs::Prefs)> {
     std::fs::create_dir_all(&cache_dir)?;
     let pool = crate::db::init_pool(&data_dir.join("catalog.sqlite"))?;
     Ok((pool, cache_dir, prefs))
+}
+
+/// Diagnose RAW decoding for a file: embedded-preview dims, full-demosaic
+/// outcome (dims or the exact error), and timings. The support tool for
+/// "my zoom isn't full resolution" reports.
+fn cmd_probe(args: &[String]) -> Result<()> {
+    let Some(path) = args.iter().find(|a| !a.starts_with("--")) else {
+        return Err(AppError::Msg("probe: missing <file>".into()));
+    };
+    let p = std::path::Path::new(path);
+    println!("file: {}", p.display());
+
+    let t0 = std::time::Instant::now();
+    match crate::imaging::raw::decode_embedded_preview(p) {
+        Ok(img) => println!(
+            "embedded preview: {}x{} ({:.1}s)",
+            img.width(),
+            img.height(),
+            t0.elapsed().as_secs_f32()
+        ),
+        Err(e) => println!("embedded preview: FAILED — {e}"),
+    }
+
+    let t1 = std::time::Instant::now();
+    match crate::imaging::raw::decode_full_raw(p) {
+        Ok(img) => println!(
+            "full demosaic:    {}x{} ({:.1}s)",
+            img.width(),
+            img.height(),
+            t1.elapsed().as_secs_f32()
+        ),
+        Err(e) => {
+            println!("full demosaic:    FAILED — {e}");
+            println!("                  (the app silently falls back to the embedded preview)");
+        }
+    }
+    Ok(())
 }
 
 fn cmd_import(args: &[String]) -> Result<()> {
