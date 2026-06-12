@@ -52,7 +52,15 @@ fn serve_mask(state: &AppState, id: &str) -> Response<Vec<u8>> {
 /// request. Used by the Loupe when zooming past 100% so sharpness checks see
 /// true pixels.
 fn serve_full(state: &AppState, id: &str) -> Response<Vec<u8>> {
-    let file = state.cache_dir.join(format!("{id}_full.jpg"));
+    // The cache name encodes the decode mode: switching the "RAW decode
+    // quality" pref must take effect immediately, not serve stale bakes
+    // (embedded-res 1:1s looked "low resolution" after enabling demosaic).
+    let raw_full = state.prefs.lock().expect("prefs poisoned").raw_decode == "full";
+    let file = if raw_full {
+        state.cache_dir.join(format!("{id}_fullraw.jpg"))
+    } else {
+        state.cache_dir.join(format!("{id}_full.jpg"))
+    };
     if let Ok(bytes) = std::fs::read(&file) {
         return jpeg(bytes);
     }
@@ -60,7 +68,6 @@ fn serve_full(state: &AppState, id: &str) -> Response<Vec<u8>> {
         let conn = state.conn()?;
         let (path, orientation) = queries::get_export_source(&conn, id)?;
         drop(conn);
-        let raw_full = state.prefs.lock().expect("prefs poisoned").raw_decode == "full";
         let p = Path::new(&path);
         let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
 

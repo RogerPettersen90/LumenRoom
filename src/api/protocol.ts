@@ -15,9 +15,16 @@ export function previewUrl(imageId: string): string {
   return `lumen://preview/${imageId}`;
 }
 
+// The active RAW decode mode — part of the 1:1 URL so the webview's
+// immutable HTTP cache can't serve a stale bake after the pref changes.
+let rawDecodeMode = "embedded";
+export function setRawDecodeMode(mode: string): void {
+  rawDecodeMode = mode;
+}
+
 /** 1:1 full-resolution preview (lazily generated; used past 100% zoom). */
 export function fullUrl(imageId: string): string {
-  return `lumen://full/${imageId}`;
+  return `lumen://full/${imageId}?m=${rawDecodeMode}`;
 }
 
 /** Raster mask weight map (grayscale PNG, frame space). */

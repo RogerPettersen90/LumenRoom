@@ -74,9 +74,17 @@ function MainApp() {
 
   useKeyboardShortcuts();
 
-  // Hydrate the catalog from SQLite on launch.
+  // Hydrate the catalog from SQLite on launch (+ seed the RAW decode mode
+  // so 1:1 preview URLs reflect the active pref).
   useEffect(() => {
     void load();
+    void import("@/api/commands").then(({ getPrefs }) =>
+      getPrefs().then((p) =>
+        import("@/api/protocol").then(({ setRawDecodeMode }) =>
+          setRawDecodeMode(p.rawDecode)
+        )
+      )
+    ).catch(() => undefined);
   }, [load]);
 
   // Neighbor prefetch: pre-bake develop proxies around the selection so

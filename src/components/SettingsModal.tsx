@@ -35,6 +35,10 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     const next = { ...prefs, ...patch };
     setLocal(next);
     await setPrefs(next);
+    if (patch.rawDecode !== undefined) {
+      const { setRawDecodeMode } = await import("@/api/protocol");
+      setRawDecodeMode(next.rawDecode);
+    }
   };
 
   const pickCatalogDir = async () => {

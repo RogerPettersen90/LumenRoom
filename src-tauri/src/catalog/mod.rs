@@ -91,7 +91,7 @@ pub fn create_virtual_copy(
     let new_id = queries::create_virtual_copy(&conn, &image_id)?;
     drop(conn);
 
-    for suffix in ["", "_preview", "_full"] {
+    for suffix in ["", "_preview", "_full", "_fullraw"] {
         let src = state.cache_dir.join(format!("{image_id}{suffix}.jpg"));
         if src.exists() {
             let _ = std::fs::copy(&src, state.cache_dir.join(format!("{new_id}{suffix}.jpg")));
@@ -245,6 +245,7 @@ pub async fn generate_subject_mask(
     let cache_dir = state.cache_dir.clone();
     let masks_dir = state.cache_dir.join("masks");
     let models_dir = state.cache_dir.join("models");
+    let raw_full = state.prefs.lock().expect("prefs poisoned").raw_decode == "full";
 
     tauri::async_runtime::spawn_blocking(move || -> Result<String> {
         let conn = pool.get().map_err(crate::error::AppError::Pool)?;
@@ -260,8 +261,16 @@ pub async fn generate_subject_mask(
         // the cached 1:1 preview (exactly what's displayed at 1:1 and what
         // exports decode); fall back to the embedded bake, which then matches
         // the 2048px proxy instead.
-        let full_file = cache_dir.join(format!("{image_id}_full.jpg"));
-        let img = match std::fs::read(&full_file) {
+        // Mode-suffixed 1:1 caches (matching the active pref) first.
+        let candidates = if raw_full {
+            [format!("{image_id}_fullraw.jpg"), format!("{image_id}_full.jpg")]
+        } else {
+            [format!("{image_id}_full.jpg"), format!("{image_id}_fullraw.jpg")]
+        };
+        let full_bytes = candidates
+            .iter()
+            .find_map(|name| std::fs::read(cache_dir.join(name)).ok());
+        let img = match full_bytes.ok_or(()) {
             Ok(bytes) => image::load_from_memory(&bytes)?
                 .resize(1536, 1536, image::imageops::FilterType::Triangle)
                 .to_rgb8(),
@@ -349,7 +358,7 @@ pub fn remove_folder_from_catalog(
     let ids = queries::remove_folder_from_catalog(&conn, &path)?;
     drop(conn);
     for id in &ids {
-        for suffix in ["", "_preview", "_full"] {
+        for suffix in ["", "_preview", "_full", "_fullraw"] {
             let _ = std::fs::remove_file(state.cache_dir.join(format!("{id}{suffix}.jpg")));
         }
     }
