@@ -1,12 +1,8 @@
 # LumenRoom
 
 A fast, **Linux-first**, non-destructive RAW photo editor and catalog —
-free and open source. An independent alternative to Adobe® Lightroom®
-Classic, built with **Tauri v2 + React + TypeScript** on a **Rust** imaging
-backend.
-
-> LumenRoom is not affiliated with, endorsed by, or sponsored by Adobe Inc.
-> Adobe and Lightroom are registered trademarks of Adobe Inc.
+free and open source. Built with **Tauri v2 + React + TypeScript** on a
+**Rust** imaging backend.
 
 **Status: beta.** Daily-drivable, under active development. Expect rough
 edges; your originals are never touched, so experimenting is safe.
@@ -50,7 +46,7 @@ preview:
 - Heal & clone with feathering; sharpening, noise reduction, vignette, grain
 - Virtual copies, snapshots, presets, full undo history, before/after
 
-**Export** — JPEG/PNG/TIFF/original with sRGB or Adobe RGB (1998) output
+**Export** — JPEG/PNG/TIFF/original with sRGB or wide-gamut print output
 (ICC embedded), resize modes, file-size cap, output sharpening, watermarking,
 naming tokens, export presets, and publish-to-folder (auto-sync a collection
 to a directory).

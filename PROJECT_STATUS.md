@@ -466,13 +466,12 @@ User decisions: keep the LumenRoom name (accepted risk), GPL-3.0-or-later.
 1. **LICENSE** (GPL-3.0 full text) + **THIRD-PARTY-LICENSES.md** (lensfun
    CC-BY-SA, DejaVu, CC0 ICC, model provenance, all 549 crates — only
    copyleft dep is rawler LGPL-2.1, satisfied by GPL-3).
-2. **Trademark scrub**: 55+ code files + CSS + docs — zero marks left except
-   whitelisted nominative use (README comparison + disclaimers, "Adobe RGB"
-   color-space standard names, adobe.com XMP namespace URIs).
-   `ci/check-marks.sh` enforces it.
-3. **README rewritten** (current features, beta status, proper ® attribution
-   + non-affiliation disclaimer). **About section** in Settings with license
-   + attributions. Version → **0.9.0-beta.1**, window title "(beta)".
+2. **Trademark scrub**: 55+ code files + CSS + docs — zero third-party marks
+   left except color-space standard names and XMP namespace URIs (technical
+   identifiers). No brand comparisons or disclaimers anywhere (2026-06-12
+   user decision). `ci/check-marks.sh` enforces it.
+3. **README rewritten** (current features, beta status). **About section**
+   in Settings with license + attributions. Version → **0.9.0-beta.1**, window title "(beta)".
 4. **Project git repo initialized** (220 files; .gitignore excludes
    target/node_modules/dist/sample_raw + internal planning docs).
    NOT pushed anywhere — publishing is the user's explicit action.

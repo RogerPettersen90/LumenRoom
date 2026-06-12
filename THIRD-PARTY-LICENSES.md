@@ -20,8 +20,8 @@ or downloads the following third-party components.
 ### Compact ICC profiles (`src-tauri/icc/`)
 - Source: https://github.com/saucecontrol/Compact-ICC-Profiles
 - License: **CC0 1.0** (public domain)
-- Files: sRGB-v2-micro.icc, AdobeCompat-v2.icc (a clean-room profile
-  compatible with Adobe RGB (1998); NOT Adobe's profile file).
+- Files: sRGB-v2-micro.icc, AdobeCompat-v2.icc (a clean-room, CC0 profile
+  for the wide-gamut opRGB / IEC 61966-2-5 color space).
 
 ## Downloaded at runtime (first use only)
 

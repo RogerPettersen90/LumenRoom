@@ -198,8 +198,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           the optional Select Subject model (U²-Net, Apache-2.0) is downloaded
           on first use and runs entirely on this machine. See
           THIRD-PARTY-LICENSES.md in the source distribution for the full
-          list. LumenRoom is an independent project, not affiliated with or
-          endorsed by Adobe Inc.
+          list.
         </p>
 
         {note && <p className="pref-note">{note}</p>}
