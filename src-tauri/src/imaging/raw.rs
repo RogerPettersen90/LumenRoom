@@ -55,9 +55,20 @@ pub fn decode_embedded_preview(path: &Path) -> Result<DynamicImage> {
 /// Full RAW demosaic via rawler — the slow, full-quality path (lifts the
 /// embedded-preview resolution ceiling to the sensor's native pixels).
 /// Used for 1:1 previews and export when the "full" RAW decode pref is on.
+///
+/// Fuji X-Trans sensors take a dedicated path: rawler's demosaic is
+/// Bayer-only (its xtrans module is an empty stub) and produces a heavy
+/// green cast on the 6×6 pattern, so we demosaic those ourselves.
 pub fn decode_full_raw(path: &Path) -> Result<DynamicImage> {
     let raw = rawler::decode_file(path)
         .map_err(|e| AppError::Msg(format!("raw decode: {e}")))?;
+
+    if let rawler::rawimage::RawPhotometricInterpretation::Cfa(config) = &raw.photometric {
+        if config.cfa.width > 2 {
+            return decode_xtrans(&raw, config);
+        }
+    }
+
     let dev = rawler::imgop::develop::RawDevelop::default();
     let developed = dev
         .develop_intermediate(&raw)
@@ -71,6 +82,133 @@ pub fn decode_full_raw(path: &Path) -> Result<DynamicImage> {
     let ours = image::RgbImage::from_raw(w, h, rgb.into_raw())
         .ok_or_else(|| AppError::Msg("raw develop buffer mismatch".into()))?;
     Ok(DynamicImage::ImageRgb8(apply_base_look(ours)))
+}
+
+/// X-Trans (and any non-Bayer RGB CFA) demosaic: channel-correct weighted
+/// interpolation over the true CFA pattern, then the same color pipeline
+/// rawler applies to Bayer files (WB → cam→sRGB matrix → clip → gamma),
+/// rebuilt from rawler's public helpers.
+fn decode_xtrans(
+    raw: &rawler::RawImage,
+    config: &rawler::rawimage::CFAConfig,
+) -> Result<DynamicImage> {
+    use rawler::imgop::develop::{Intermediate, ProcessingStep, RawDevelop};
+    use rawler::imgop::matrix::{multiply, normalize, pseudo_inverse};
+    use rawler::imgop::raw::clip_euclidean_norm_avg;
+    use rawler::imgop::xyz::SRGB_TO_XYZ_D65;
+    use rayon::prelude::*;
+
+    // 1. Black/white-level corrected mono plane (full sensor grid).
+    let dev = RawDevelop {
+        steps: vec![ProcessingStep::Rescale],
+    };
+    let plane = match dev
+        .develop_intermediate(raw)
+        .map_err(|e| AppError::Msg(format!("xtrans rescale: {e}")))?
+    {
+        Intermediate::Monochrome(p) => p,
+        _ => return Err(AppError::Msg("xtrans: expected mono plane".into())),
+    };
+    let (pw, ph) = (plane.width, plane.height);
+
+    // Active sensor area (masked borders excluded); CFA indexing stays in
+    // absolute sensor coordinates.
+    let area = raw.active_area.unwrap_or(rawler::imgop::Rect {
+        p: rawler::imgop::Point { x: 0, y: 0 },
+        d: rawler::imgop::Dim2 { w: pw, h: ph },
+    });
+    let (ax, ay, aw, ah) = (area.p.x, area.p.y, area.d.w.min(pw - area.p.x), area.d.h.min(ph - area.p.y));
+
+    // 2. Demosaic: each output channel = the CFA sample itself, or an
+    // inverse-distance-weighted average of same-color neighbors within
+    // radius 2 (a 5×5 window always covers all three colors in X-Trans).
+    let cfa = &config.cfa;
+    let data = &plane.data;
+    let mut rgb = vec![[0f32; 3]; aw * ah];
+    rgb.par_chunks_mut(aw).enumerate().for_each(|(ry, row)| {
+        let y = ay + ry;
+        for (rx, out) in row.iter_mut().enumerate() {
+            let x = ax + rx;
+            let center_c = cfa.color_at(y, x).min(2);
+            let mut acc = [0f32; 3];
+            let mut wsum = [0f32; 3];
+            for dy in -2i32..=2 {
+                let yy = y as i32 + dy;
+                if yy < 0 || yy >= ph as i32 {
+                    continue;
+                }
+                for dx in -2i32..=2 {
+                    let xx = x as i32 + dx;
+                    if xx < 0 || xx >= pw as i32 {
+                        continue;
+                    }
+                    let c = cfa.color_at(yy as usize, xx as usize).min(2);
+                    let w = 1.0 / (1.0 + (dx * dx + dy * dy) as f32);
+                    acc[c] += w * data[yy as usize * pw + xx as usize];
+                    wsum[c] += w;
+                }
+            }
+            for c in 0..3 {
+                out[c] = if c == center_c {
+                    data[y * pw + x]
+                } else if wsum[c] > 0.0 {
+                    acc[c] / wsum[c]
+                } else {
+                    0.0
+                };
+            }
+        }
+    });
+
+    // 3. Color: WB coefficients + cam→sRGB matrix (rawler's exact math).
+    let wb = if raw.wb_coeffs[0].is_nan() {
+        [1.0, 1.0, 1.0, 1.0]
+    } else {
+        raw.wb_coeffs
+    };
+    let cm = raw
+        .color_matrix
+        .iter()
+        .find(|(ill, _)| format!("{ill:?}") == "D65")
+        .map(|(_, m)| m.clone())
+        .or_else(|| raw.color_matrix.values().next().cloned())
+        .ok_or_else(|| AppError::Msg("xtrans: no color matrix".into()))?;
+    let mut xyz2cam = [[0f32; 3]; 4];
+    for i in 0..(cm.len() / 3).min(4) {
+        for j in 0..3 {
+            xyz2cam[i][j] = cm[i * 3 + j];
+        }
+    }
+    let rgb2cam = normalize(multiply(&xyz2cam, &SRGB_TO_XYZ_D65));
+    let cam2rgb = pseudo_inverse(rgb2cam);
+
+    // 4. Default crop (the official frame), relative to the active area.
+    let crop = raw.crop_area.unwrap_or(area);
+    let cx = crop.p.x.saturating_sub(ax);
+    let cy = crop.p.y.saturating_sub(ay);
+    let cw = crop.d.w.min(aw - cx.min(aw));
+    let ch = crop.d.h.min(ah - cy.min(ah));
+
+    let mut img = image::RgbImage::new(cw as u32, ch as u32);
+    img.enumerate_rows_mut().par_bridge().for_each(|(oy, row)| {
+        for (ox, _, px) in row {
+            let p = rgb[(cy + oy as usize) * aw + cx + ox as usize];
+            let r = p[0] * wb[0];
+            let g = p[1] * wb[1];
+            let b = p[2] * wb[2];
+            let srgb = clip_euclidean_norm_avg(&[
+                cam2rgb[0][0] * r + cam2rgb[0][1] * g + cam2rgb[0][2] * b,
+                cam2rgb[1][0] * r + cam2rgb[1][1] * g + cam2rgb[1][2] * b,
+                cam2rgb[2][0] * r + cam2rgb[2][1] * g + cam2rgb[2][2] * b,
+            ]);
+            for c in 0..3 {
+                let v = rawler::imgop::srgb::srgb_apply_gamma(srgb[c]);
+                px.0[c] = (v * 255.0).round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    });
+
+    Ok(DynamicImage::ImageRgb8(apply_base_look(img)))
 }
 
 /// rawler's develop is colorimetrically neutral — darker and much flatter
@@ -96,14 +234,23 @@ fn apply_base_look(mut img: image::RgbImage) -> image::RgbImage {
     }
     lumas.sort_by(|a, b| a.partial_cmp(b).expect("luma NaN"));
     let pct = |q: f32| lumas[((q * (lumas.len() - 1) as f32) as usize).min(lumas.len() - 1)];
-    let (p50, p995) = (pct(0.5), pct(0.995));
+    let (p05, p50, p995) = (pct(0.05), pct(0.5), pct(0.995));
 
-    // Auto exposure: aim the median at ~0.20 linear (≈ display 0.48, where
-    // camera JPEGs typically put it). Brighten only, max +2EV, and cap so no
-    // more than the brightest ~0.5% gets pushed past clipping.
+    // Auto exposure as a POWER curve (lin^k), not a gain: it lifts the
+    // median to the camera-typical midpoint while mapping 1.0→1.0, so
+    // highlights can never clip and no guard is needed (a multiplicative
+    // gain had to be capped on bright scenes and left X-Trans files dark).
     const TARGET_MID: f32 = 0.20;
-    let mut gain = (TARGET_MID / p50.max(1e-4)).clamp(1.0, 4.0);
-    gain = gain.min((1.1 / p995.max(1e-4)).max(1.0));
+    let _ = p995; // kept by the sampler; unused since the power curve can't clip
+    let k = if p50 > 1e-5 && p50 < TARGET_MID {
+        (TARGET_MID.ln() / p50.ln()).clamp(0.45, 1.0)
+    } else {
+        1.0
+    };
+    // Adaptive black point: the power lift flattens shadows, so re-anchor
+    // them — subtract-stretch most of the (lifted) 5th percentile back out,
+    // restoring camera-like shadow depth without crushing detail.
+    let black = (p05.max(0.0).powf(k) * 0.75).clamp(0.0, 0.04);
 
     // Compose exposure + S-curve into one display-space LUT.
     let curve = crate::imaging::pipeline::curve_lut(&[
@@ -115,7 +262,8 @@ fn apply_base_look(mut img: image::RgbImage) -> image::RgbImage {
     ]);
     let mut lut = [0f32; 256];
     for (i, slot) in lut.iter_mut().enumerate() {
-        let lin = (i as f32 / 255.0).powf(2.2) * gain;
+        let lifted = (i as f32 / 255.0).powf(2.2).powf(k);
+        let lin = ((lifted - black) / (1.0 - black)).max(0.0);
         let disp = lin.min(1.0).powf(1.0 / 2.2);
         let f = disp * 255.0;
         let lo = (f.floor() as usize).min(255);
@@ -294,7 +442,9 @@ mod flatness_probe {
     #[test]
     #[ignore]
     fn compare_embedded_vs_demosaic() {
-        let p = std::path::Path::new("../sample_raw/sample.dng");
+        let env_path = std::env::var("LUMEN_TEST_RAW")
+            .unwrap_or_else(|_| "../sample_raw/sample.dng".into());
+        let p = std::path::Path::new(&env_path);
         let emb = decode_embedded_preview(p).unwrap().to_rgb8();
         let emb = image::imageops::resize(&emb, 800, 533, image::imageops::FilterType::Triangle);
         stats(&emb, "embedded (camera look)");
