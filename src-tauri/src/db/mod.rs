@@ -97,8 +97,13 @@ pub(crate) fn add_column_if_missing(
 
 /// Open (or create) the catalog database and run embedded migrations.
 pub fn init_pool(db_path: &Path) -> Result<DbPool> {
-    let manager = SqliteConnectionManager::file(db_path)
-        .with_init(|c| c.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;"));
+    let manager = SqliteConnectionManager::file(db_path).with_init(|c| {
+        // busy_timeout: a half-dead previous instance must delay us, not
+        // make the catalog silently appear empty / wedge writes.
+        c.execute_batch(
+            "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;",
+        )
+    });
 
     let pool = Pool::builder()
         .max_size(8)
@@ -128,6 +133,10 @@ pub fn init_pool(db_path: &Path) -> Result<DbPool> {
 
     // 0008: hierarchical keywords ("Travel > Norway").
     add_column_if_missing(&conn, "keywords", "parent_id", "INTEGER")?;
+
+    // Fold the WAL back into the main file at startup: after unclean exits
+    // most of the catalog can otherwise live only in the -wal sidecar.
+    let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
 
     // 0009: publish-to-folder — per-collection destination + export options,
     // and a ledger of what's been published (params hash detects re-edits).

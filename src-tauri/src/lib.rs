@@ -19,6 +19,15 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        // Second launches focus the existing window instead of fighting the
+        // first instance for the catalog (force-kill loops created zombie
+        // instances that wedged the database).
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // Resolve XDG data/cache dirs and prepare the catalog + thumb cache.
