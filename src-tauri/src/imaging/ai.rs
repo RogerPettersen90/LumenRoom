@@ -9,9 +9,12 @@ use tract_onnx::prelude::*;
 
 // Silueta: a 43MB U²-Net (same architecture as u2netp, so the tract compat
 // patch applies unchanged) trained substantially better — chosen after the
-// small model's mattes proved too loose in real-world use.
-const MODEL_URL: &str =
-    "https://github.com/danielgatis/rembg/releases/download/v0.0.0/silueta.onnx";
+// small model's mattes proved too loose in real-world use. Primary source is
+// our own release mirror; upstream (rembg) is the fallback.
+const MODEL_URLS: [&str; 2] = [
+    "https://github.com/RogerPettersen90/LumenRoom/releases/download/v0.9.0-beta.1/silueta.onnx",
+    "https://github.com/danielgatis/rembg/releases/download/v0.0.0/silueta.onnx",
+];
 const MODEL_SIZE: u32 = 320; // the U²-Net family's fixed input resolution
 
 /// Download the model on first use (atomic rename so a torn download never
@@ -24,12 +27,24 @@ pub fn ensure_model(models_dir: &Path) -> Result<PathBuf> {
     std::fs::create_dir_all(models_dir)?;
     let tmp = models_dir.join("silueta.onnx.part");
 
-    let resp = ureq::get(MODEL_URL)
-        .call()
-        .map_err(|e| AppError::Msg(format!("model download failed: {e}")))?;
-    let mut reader = resp.into_body().into_reader();
     let mut bytes = Vec::new();
-    std::io::copy(&mut reader, &mut bytes).map_err(AppError::Io)?;
+    let mut last_err = String::new();
+    for url in MODEL_URLS {
+        bytes.clear();
+        match ureq::get(url).call() {
+            Ok(resp) => {
+                let mut reader = resp.into_body().into_reader();
+                if std::io::copy(&mut reader, &mut bytes).is_ok() && !bytes.is_empty() {
+                    break;
+                }
+                last_err = format!("truncated download from {url}");
+            }
+            Err(e) => last_err = format!("{url}: {e}"),
+        }
+    }
+    if bytes.is_empty() {
+        return Err(AppError::Msg(format!("model download failed: {last_err}")));
+    }
 
     let patched = patch_resize_modes(&bytes)?;
     std::fs::write(&tmp, &patched)?;
